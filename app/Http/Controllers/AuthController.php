@@ -3,62 +3,72 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Traits\ApiResponser;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
-    public function sign_up(Request $request){
-        $data = $request->validate([
-            'name' => 'required|string',
-            'email' => 'required|string|unique:users,email',
-            'password' => 'required|string|confirmed'
-        ]);
+    use ApiResponser;
+    private string $tokenName =  "API Token";
 
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => bcrypt($data['password'])
-        ]);
 
-        $token = $user->createToken('apiToken')->plainTextToken;
-
-        $res = [
-            'user' => $user,
-            'token' => $token
-        ];
-        return response($res, 201);
-    }
-    public function login(Request $request)
+    public function register(Request $request)
     {
-        $data = $request->validate([
-            'email' => 'required|string',
-            'password' => 'required|string'
+        $validator = Validator::make($request->all(),[
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|unique:users,email',
+            'password' => 'required|string|min:6'
         ]);
 
-        $user = User::where('email', $data['email'])->first();
-
-        if (!$user || !Hash::check($data['password'], $user->password)) {
-            return response([
-                'message' => 'incorrect username or password'
-            ], 401);
+        if($validator->fails()){
+            return $this->error('Validation failed!', 401,  $validator->errors());
+        }else{
+            $attr = $request->all();
+            $attr['password'] = bcrypt($attr['password']);
+            $user = User::create($attr);
+            $user->assignRole('guest');
+            return $this->success( [
+                'token' => $user->createToken($this->tokenName)->plainTextToken
+            ],"Successfully Completed");
         }
 
-        $token = $user->createToken('apiToken')->plainTextToken;
 
-        $res = [
-            'user' => $user,
-            'token' => $token
-        ];
-
-        return response($res, 201);
     }
-    public function logout(Request $request)
+
+    public function login(Request $request)
+    {
+        $attr = $request->all();
+
+
+        $validator = Validator::make($attr,[
+            'email' => 'required|email',
+            'password' => 'required'
+        ]);
+
+        if($validator->fails()){
+            return $this->error('Validation failed!', 401,  $validator->errors());
+        }
+
+        $attr = $request->all();
+
+        if (!Auth::attempt($attr)) {
+            return $this->error('Wrong credentials', 401);
+        }
+
+        return $this->success([
+            'token' => auth()->user()->createToken($this->tokenName)->plainTextToken
+        ]);
+
+    }
+
+    public function logout()
     {
         auth()->user()->tokens()->delete();
-        return [
-            'message' => 'user logged out'
-        ];
+
+        return $this->success([
+            'message' => 'Successfully unathorized!'
+        ]);
     }
 }
